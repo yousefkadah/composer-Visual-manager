@@ -3,9 +3,14 @@
   "tasks": [
     {
       "label": "build",
-      "type": "npm",
-      "script": "build",
-      "problemMatcher": []
+      "type": "shell",
+      "command": "/opt/homebrew/opt/node@22/bin/npm run build",
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "PATH": "/opt/homebrew/opt/node@22/bin:${env:PATH}"
+        }
+      }
     }
   ]
 }
