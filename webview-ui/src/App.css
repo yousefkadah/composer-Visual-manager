@@ -756,6 +756,269 @@ body {
   }
 }
 
+/* ===== Scripts Panel ===== */
+.scripts-panel {
+  margin-bottom: 12px;
+  border: 1px solid var(--vscode-panel-border, #333);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.scripts-body {
+  background: var(--vscode-editor-background);
+}
+
+.scripts-count {
+  background: var(--vscode-badge-background, #007acc);
+  color: var(--vscode-badge-foreground, #fff);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  margin-left: 6px;
+  font-weight: 600;
+}
+
+.scripts-list {
+  border-bottom: 1px solid var(--vscode-panel-border, #333);
+}
+
+.scripts-list-header {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #2a2a2a);
+}
+
+.scripts-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+}
+
+.script-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #2a2a2a);
+  transition: background 0.1s;
+}
+
+.script-row:last-child {
+  border-bottom: none;
+}
+
+.script-row:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.script-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.script-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.script-command {
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.script-actions .action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Script edit inline */
+.script-edit-form {
+  width: 100%;
+}
+
+.script-edit-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  margin-bottom: 6px;
+}
+
+.script-edit-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.script-edit-row .search-input {
+  flex: 1;
+}
+
+/* Script output */
+.script-output {
+  border-top: 1px solid var(--vscode-panel-border, #333);
+  border-bottom: 1px solid var(--vscode-panel-border, #333);
+}
+
+.script-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--vscode-sideBar-background, #252526);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.8;
+}
+
+.script-output-content {
+  padding: 10px 14px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--vscode-textCodeBlock-background, #1a1a1a);
+  margin: 0;
+}
+
+.scripts-empty {
+  padding: 16px 14px;
+  text-align: center;
+  opacity: 0.55;
+  font-size: 12px;
+  border-bottom: 1px solid var(--vscode-panel-border, #333);
+}
+
+/* Add script form */
+.scripts-add-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #333);
+}
+
+.add-script-btn {
+  width: 100%;
+}
+
+.add-script-form .form-group {
+  margin-bottom: 8px;
+}
+
+.add-script-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Suggestions */
+.scripts-suggestions {
+  padding: 12px 14px;
+}
+
+.scripts-suggestions .scripts-section-title {
+  margin-bottom: 10px;
+  display: block;
+}
+
+.suggestion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.suggestion-card {
+  border: 1px solid var(--vscode-panel-border, #333);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--vscode-sideBar-background, #252526);
+  transition: border-color 0.15s;
+}
+
+.suggestion-card:hover {
+  border-color: var(--vscode-focusBorder, #007acc);
+}
+
+.suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.suggestion-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.suggestion-title-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestion-name {
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.suggestion-pkg {
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  opacity: 0.5;
+}
+
+.suggestion-desc {
+  font-size: 11px;
+  opacity: 0.7;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.suggestion-scripts-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.suggestion-script-name {
+  background: var(--vscode-textCodeBlock-background, #1a1a1a);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.suggestion-btn {
+  width: 100%;
+}
+
+.suggestion-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ===== Scrollbar (themed) ===== */
 ::-webkit-scrollbar {
   width: 8px;

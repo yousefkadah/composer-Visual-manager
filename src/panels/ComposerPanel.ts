@@ -169,6 +169,71 @@ export class ComposerPanel {
           case "addSuggestion":
             await this.handleAddSuggestion(message.tool);
             break;
+
+          // Autoload
+          case "requestAutoload":
+            await this.sendAutoload();
+            break;
+          case "addAutoloadEntry":
+            await this.handleAddAutoloadEntry(message.section, message.entryType, message.namespace, message.path);
+            break;
+          case "removeAutoloadEntry":
+            await this.handleRemoveAutoloadEntry(message.section, message.entryType, message.namespace, message.path);
+            break;
+          case "dumpAutoload":
+            await this.handleDumpAutoload(message.optimize);
+            break;
+
+          // Platform
+          case "requestPlatform":
+            await this.sendPlatform();
+            break;
+          case "addPlatformReq":
+            await this.handleAddPlatformReq(message.name, message.constraint);
+            break;
+          case "removePlatformReq":
+            await this.handleRemovePlatformReq(message.name);
+            break;
+          case "checkPlatformReqs":
+            await this.handleCheckPlatformReqs();
+            break;
+
+          // Health
+          case "runValidate":
+            await this.handleRunValidate();
+            break;
+          case "runDiagnose":
+            await this.handleRunDiagnose();
+            break;
+
+          // Framework
+          case "requestFrameworkInfo":
+            await this.sendFrameworkInfo();
+            break;
+          case "runFrameworkCommand":
+            await this.handleRunFrameworkCommand(message.command);
+            break;
+
+          // Licenses
+          case "requestLicenses":
+            await this.sendLicenses();
+            break;
+
+          // Stability
+          case "requestStability":
+            await this.sendStability();
+            break;
+          case "setStability":
+            await this.handleSetStability(message.minimumStability, message.preferStable);
+            break;
+
+          // Why
+          case "why":
+            await this.handleWhy(message.packageName);
+            break;
+          case "whyNot":
+            await this.handleWhyNot(message.packageName, message.version);
+            break;
         }
       },
       null,

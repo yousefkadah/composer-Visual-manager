@@ -58,6 +58,83 @@ export interface ScriptSuggestion {
   scripts: { name: string; command: string }[];
 }
 
+// Autoload
+export interface AutoloadEntry {
+  namespace: string;
+  path: string;
+}
+
+export interface AutoloadConfig {
+  psr4: AutoloadEntry[];
+  psr0: AutoloadEntry[];
+  classmap: string[];
+  files: string[];
+}
+
+export interface AutoloadData {
+  autoload: AutoloadConfig;
+  autoloadDev: AutoloadConfig;
+}
+
+// Platform
+export interface PlatformRequirement {
+  name: string;
+  constraint: string;
+  type: "php" | "extension";
+  installed?: string;
+  status?: "ok" | "missing" | "mismatch";
+}
+
+// Health
+export interface HealthCheck {
+  label: string;
+  status: "ok" | "warning" | "error";
+  message: string;
+}
+
+// Framework
+export type FrameworkType = "laravel" | "symfony" | "wordpress" | "yii" | "cakephp" | "codeigniter" | "slim" | "none";
+
+export interface FrameworkInfo {
+  type: FrameworkType;
+  version?: string;
+  commands: FrameworkCommand[];
+  quickActions: FrameworkQuickAction[];
+}
+
+export interface FrameworkCommand {
+  name: string;
+  command: string;
+  description: string;
+  category: string;
+}
+
+export interface FrameworkQuickAction {
+  label: string;
+  command: string;
+  description: string;
+  icon: string;
+}
+
+// Licenses
+export interface LicenseEntry {
+  name: string;
+  version: string;
+  license: string[];
+}
+
+// Stability
+export interface StabilityConfig {
+  minimumStability: string;
+  preferStable: boolean;
+}
+
+// Why
+export interface WhyResult {
+  packageName: string;
+  reason: string;
+}
+
 export type MessageToWebview =
   | { type: "packages"; data: ComposerPackage[] }
   | { type: "searchResults"; data: PackagistSearchResult[] }
@@ -69,7 +146,15 @@ export type MessageToWebview =
   | { type: "localPathSelected"; path: string }
   | { type: "githubPackageInfo"; name: string; description: string; branches: string[] }
   | { type: "scripts"; data: ComposerScript[] }
-  | { type: "scriptOutput"; output: string };
+  | { type: "scriptOutput"; output: string }
+  | { type: "autoloadData"; data: AutoloadData }
+  | { type: "platformRequirements"; data: PlatformRequirement[] }
+  | { type: "healthChecks"; data: HealthCheck[] }
+  | { type: "frameworkInfo"; data: FrameworkInfo }
+  | { type: "licenses"; data: LicenseEntry[] }
+  | { type: "stabilityConfig"; data: StabilityConfig }
+  | { type: "whyResult"; data: WhyResult[] }
+  | { type: "commandOutput"; title: string; output: string };
 
 export interface InstallOptions {
   dev: boolean;
@@ -105,7 +190,31 @@ export type MessageFromWebview =
   | { type: "removeScript"; name: string }
   | { type: "editScript"; name: string; command: string }
   | { type: "runScript"; name: string }
-  | { type: "addSuggestion"; tool: string };
+  | { type: "addSuggestion"; tool: string }
+  // Autoload
+  | { type: "requestAutoload" }
+  | { type: "addAutoloadEntry"; section: "autoload" | "autoload-dev"; entryType: "psr-4" | "classmap" | "files"; namespace?: string; path: string }
+  | { type: "removeAutoloadEntry"; section: "autoload" | "autoload-dev"; entryType: "psr-4" | "classmap" | "files"; namespace?: string; path: string }
+  | { type: "dumpAutoload"; optimize: "none" | "classmap" | "authoritative" | "apcu" }
+  // Platform
+  | { type: "requestPlatform" }
+  | { type: "addPlatformReq"; name: string; constraint: string }
+  | { type: "removePlatformReq"; name: string }
+  | { type: "checkPlatformReqs" }
+  // Health
+  | { type: "runValidate" }
+  | { type: "runDiagnose" }
+  // Framework
+  | { type: "requestFrameworkInfo" }
+  | { type: "runFrameworkCommand"; command: string }
+  // Licenses
+  | { type: "requestLicenses" }
+  // Stability
+  | { type: "requestStability" }
+  | { type: "setStability"; minimumStability: string; preferStable: boolean }
+  // Why
+  | { type: "why"; packageName: string }
+  | { type: "whyNot"; packageName: string; version: string };
 
 export interface ColumnConfig {
   type: boolean;

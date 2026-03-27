@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { ComposerPackage, SecurityAdvisory, InstallOptions, ComposerScript, ScriptSuggestion } from "../types";
+import {
+  ComposerPackage, SecurityAdvisory, InstallOptions, ComposerScript, ScriptSuggestion,
+  AutoloadData, AutoloadConfig, PlatformRequirement, HealthCheck,
+  FrameworkInfo, FrameworkType, LicenseEntry, StabilityConfig, WhyResult,
+} from "../types";
 import { runComposerCommand } from "./commandRunner";
 import { getPackageInfo, getLatestStableVersion } from "./packagistApi";
 import { CacheService } from "./cacheService";
@@ -468,7 +472,446 @@ export class ComposerService {
 
     return true;
   }
+
+  // ===== Autoload Management =====
+
+  async getAutoloadData(): Promise<AutoloadData> {
+    const json = await this.readComposerJson();
+    const parse = (section: any): AutoloadConfig => {
+      const psr4 = Object.entries(section?.["psr-4"] || {}).map(([ns, p]) => ({
+        namespace: ns, path: Array.isArray(p) ? p[0] : p as string,
+      }));
+      const psr0 = Object.entries(section?.["psr-0"] || {}).map(([ns, p]) => ({
+        namespace: ns, path: Array.isArray(p) ? p[0] : p as string,
+      }));
+      const classmap: string[] = section?.classmap || [];
+      const files: string[] = section?.files || [];
+      return { psr4, psr0, classmap, files };
+    };
+    return {
+      autoload: parse(json?.autoload),
+      autoloadDev: parse(json?.["autoload-dev"]),
+    };
+  }
+
+  async addAutoloadEntry(
+    section: "autoload" | "autoload-dev",
+    entryType: "psr-4" | "classmap" | "files",
+    namespaceName: string | undefined,
+    entryPath: string
+  ): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(this.composerJsonPath);
+      const data = await vscode.workspace.fs.readFile(uri);
+      const json = JSON.parse(Buffer.from(data).toString("utf-8"));
+      const key = section === "autoload-dev" ? "autoload-dev" : "autoload";
+      if (!json[key]) json[key] = {};
+
+      if (entryType === "psr-4") {
+        if (!json[key]["psr-4"]) json[key]["psr-4"] = {};
+        json[key]["psr-4"][namespaceName || ""] = entryPath;
+      } else if (entryType === "classmap") {
+        if (!json[key].classmap) json[key].classmap = [];
+        if (!json[key].classmap.includes(entryPath)) json[key].classmap.push(entryPath);
+      } else if (entryType === "files") {
+        if (!json[key].files) json[key].files = [];
+        if (!json[key].files.includes(entryPath)) json[key].files.push(entryPath);
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(json, null, 4), "utf-8"));
+      return true;
+    } catch { return false; }
+  }
+
+  async removeAutoloadEntry(
+    section: "autoload" | "autoload-dev",
+    entryType: "psr-4" | "classmap" | "files",
+    namespaceName: string | undefined,
+    entryPath: string
+  ): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(this.composerJsonPath);
+      const data = await vscode.workspace.fs.readFile(uri);
+      const json = JSON.parse(Buffer.from(data).toString("utf-8"));
+      const key = section === "autoload-dev" ? "autoload-dev" : "autoload";
+
+      if (entryType === "psr-4" && json[key]?.["psr-4"] && namespaceName) {
+        delete json[key]["psr-4"][namespaceName];
+      } else if (entryType === "classmap" && json[key]?.classmap) {
+        json[key].classmap = json[key].classmap.filter((p: string) => p !== entryPath);
+      } else if (entryType === "files" && json[key]?.files) {
+        json[key].files = json[key].files.filter((p: string) => p !== entryPath);
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(json, null, 4), "utf-8"));
+      return true;
+    } catch { return false; }
+  }
+
+  async dumpAutoload(optimize: "none" | "classmap" | "authoritative" | "apcu"): Promise<boolean> {
+    const flags: Record<string, string> = {
+      none: "",
+      classmap: "--optimize",
+      authoritative: "--classmap-authoritative",
+      apcu: "--apcu",
+    };
+    const result = await runComposerCommand(`dump-autoload ${flags[optimize]}`.trim(), this.projectDir);
+    return result.exitCode === 0;
+  }
+
+  // ===== Platform Requirements =====
+
+  async getPlatformRequirements(): Promise<PlatformRequirement[]> {
+    const json = await this.readComposerJson();
+    const reqs: PlatformRequirement[] = [];
+    const allDeps = { ...json?.require, ...json?.["require-dev"] };
+
+    for (const [name, constraint] of Object.entries(allDeps)) {
+      if (name === "php") {
+        reqs.push({ name: "php", constraint: constraint as string, type: "php" });
+      } else if (name.startsWith("ext-")) {
+        reqs.push({ name, constraint: constraint as string, type: "extension" });
+      }
+    }
+    return reqs;
+  }
+
+  async checkPlatformReqs(): Promise<PlatformRequirement[]> {
+    const result = await runComposerCommand("check-platform-reqs --format=json", this.projectDir, false);
+    const reqs: PlatformRequirement[] = [];
+    try {
+      const data = JSON.parse(result.stdout);
+      for (const item of data) {
+        reqs.push({
+          name: item.name,
+          constraint: item.required_as || item.version || "",
+          type: item.name === "php" ? "php" : "extension",
+          installed: item.version || item.provided_version,
+          status: item.status === "success" ? "ok" : item.status === "failed" ? "mismatch" : "missing",
+        });
+      }
+    } catch { /* parse error */ }
+    return reqs;
+  }
+
+  async addPlatformRequirement(name: string, constraint: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(this.composerJsonPath);
+      const data = await vscode.workspace.fs.readFile(uri);
+      const json = JSON.parse(Buffer.from(data).toString("utf-8"));
+      if (!json.require) json.require = {};
+      json.require[name] = constraint;
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(json, null, 4), "utf-8"));
+      return true;
+    } catch { return false; }
+  }
+
+  async removePlatformRequirement(name: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(this.composerJsonPath);
+      const data = await vscode.workspace.fs.readFile(uri);
+      const json = JSON.parse(Buffer.from(data).toString("utf-8"));
+      if (json.require) delete json.require[name];
+      if (json["require-dev"]) delete json["require-dev"][name];
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(json, null, 4), "utf-8"));
+      return true;
+    } catch { return false; }
+  }
+
+  // ===== Health (Validate + Diagnose) =====
+
+  async runValidate(): Promise<HealthCheck[]> {
+    const result = await runComposerCommand("validate --no-check-publish", this.projectDir, false);
+    const checks: HealthCheck[] = [];
+    const output = result.stdout + "\n" + result.stderr;
+    const lines = output.split("\n").filter(Boolean);
+
+    for (const line of lines) {
+      if (line.includes("is valid")) {
+        checks.push({ label: "composer.json", status: "ok", message: line.trim() });
+      } else if (line.includes("Warning") || line.includes("warning")) {
+        checks.push({ label: "Warning", status: "warning", message: line.trim() });
+      } else if (line.includes("error") || line.includes("Error") || line.includes("invalid")) {
+        checks.push({ label: "Error", status: "error", message: line.trim() });
+      } else if (line.trim().startsWith("-") || line.trim().startsWith("*")) {
+        checks.push({ label: "Issue", status: "warning", message: line.trim() });
+      }
+    }
+
+    if (checks.length === 0) {
+      checks.push({
+        label: "Validation",
+        status: result.exitCode === 0 ? "ok" : "error",
+        message: result.exitCode === 0 ? "composer.json is valid" : "Validation failed",
+      });
+    }
+
+    // Check lock sync
+    const lockResult = await runComposerCommand("validate --check-lock", this.projectDir, false);
+    const lockOutput = lockResult.stdout + lockResult.stderr;
+    if (lockOutput.includes("lock file is not up to date") || lockResult.exitCode !== 0) {
+      checks.push({ label: "Lock File", status: "warning", message: "composer.lock is out of sync with composer.json. Run 'composer update --lock'." });
+    } else {
+      checks.push({ label: "Lock File", status: "ok", message: "composer.lock is in sync" });
+    }
+
+    return checks;
+  }
+
+  async runDiagnose(): Promise<HealthCheck[]> {
+    const result = await runComposerCommand("diagnose", this.projectDir, false);
+    const checks: HealthCheck[] = [];
+    const lines = (result.stdout + "\n" + result.stderr).split("\n").filter(Boolean);
+
+    for (const line of lines) {
+      const match = line.match(/^(.+?):\s*(.+)$/);
+      if (match) {
+        const label = match[1].trim();
+        const msg = match[2].trim();
+        let status: "ok" | "warning" | "error" = "ok";
+        if (msg.toLowerCase().includes("ok") || msg.toLowerCase().includes("true")) status = "ok";
+        else if (msg.toLowerCase().includes("warning") || msg.toLowerCase().includes("deprecated")) status = "warning";
+        else if (msg.toLowerCase().includes("error") || msg.toLowerCase().includes("fail") || msg.toLowerCase().includes("no")) status = "error";
+        checks.push({ label, status, message: msg });
+      }
+    }
+    return checks;
+  }
+
+  // ===== Framework Detection =====
+
+  async detectFramework(): Promise<FrameworkInfo> {
+    const json = await this.readComposerJson();
+    const allDeps = { ...json?.require, ...json?.["require-dev"] };
+    const depNames = Object.keys(allDeps);
+
+    let type: FrameworkType = "none";
+    let version: string | undefined;
+
+    if (depNames.includes("laravel/framework")) {
+      type = "laravel";
+      version = allDeps["laravel/framework"];
+    } else if (depNames.includes("symfony/framework-bundle")) {
+      type = "symfony";
+      version = allDeps["symfony/framework-bundle"];
+    } else if (depNames.includes("yiisoft/yii2")) {
+      type = "yii";
+      version = allDeps["yiisoft/yii2"];
+    } else if (depNames.includes("cakephp/cakephp")) {
+      type = "cakephp";
+      version = allDeps["cakephp/cakephp"];
+    } else if (depNames.includes("codeigniter4/framework")) {
+      type = "codeigniter";
+      version = allDeps["codeigniter4/framework"];
+    } else if (depNames.includes("slim/slim")) {
+      type = "slim";
+      version = allDeps["slim/slim"];
+    } else if (depNames.includes("johnpbloch/wordpress-core") || depNames.includes("roots/wordpress")) {
+      type = "wordpress";
+    }
+
+    const fw = FRAMEWORK_DATA[type] || { commands: [], quickActions: [] };
+    return { type, version, commands: fw.commands, quickActions: fw.quickActions };
+  }
+
+  async runFrameworkCommand(command: string): Promise<{ success: boolean; output: string }> {
+    const result = await runComposerCommand(`exec -- ${command}`, this.projectDir);
+    // If that fails, try running directly
+    if (result.exitCode !== 0) {
+      const { exec } = require("child_process");
+      return new Promise((resolve) => {
+        exec(command, { cwd: this.projectDir, maxBuffer: 5 * 1024 * 1024 }, (err: any, stdout: string, stderr: string) => {
+          resolve({ success: !err, output: stdout + (stderr ? "\n" + stderr : "") });
+        });
+      });
+    }
+    return { success: result.exitCode === 0, output: result.stdout + result.stderr };
+  }
+
+  // ===== Licenses =====
+
+  async getLicenses(): Promise<LicenseEntry[]> {
+    const result = await runComposerCommand("licenses --format=json", this.projectDir, false);
+    try {
+      const data = JSON.parse(result.stdout);
+      const deps = data.dependencies || {};
+      return Object.entries(deps).map(([name, info]: [string, any]) => ({
+        name,
+        version: info.version || "",
+        license: info.license || [],
+      }));
+    } catch { return []; }
+  }
+
+  // ===== Stability =====
+
+  async getStabilityConfig(): Promise<StabilityConfig> {
+    const json = await this.readComposerJson();
+    return {
+      minimumStability: (json as any)?.["minimum-stability"] || "stable",
+      preferStable: (json as any)?.["prefer-stable"] ?? true,
+    };
+  }
+
+  async setStabilityConfig(minimumStability: string, preferStable: boolean): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(this.composerJsonPath);
+      const data = await vscode.workspace.fs.readFile(uri);
+      const json = JSON.parse(Buffer.from(data).toString("utf-8"));
+      json["minimum-stability"] = minimumStability;
+      json["prefer-stable"] = preferStable;
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(json, null, 4), "utf-8"));
+      return true;
+    } catch { return false; }
+  }
+
+  // ===== Why / Why-Not =====
+
+  async why(packageName: string): Promise<WhyResult[]> {
+    const result = await runComposerCommand(`why ${packageName}`, this.projectDir, false);
+    return result.stdout.split("\n").filter(Boolean).map((line) => ({
+      packageName,
+      reason: line.trim(),
+    }));
+  }
+
+  async whyNot(packageName: string, version: string): Promise<WhyResult[]> {
+    const result = await runComposerCommand(`why-not ${packageName} ${version}`, this.projectDir, false);
+    return (result.stdout + "\n" + result.stderr).split("\n").filter(Boolean).map((line) => ({
+      packageName,
+      reason: line.trim(),
+    }));
+  }
 }
+
+// ===== Framework Command Data =====
+
+const FRAMEWORK_DATA: Record<FrameworkType, { commands: FrameworkInfo["commands"]; quickActions: FrameworkInfo["quickActions"] }> = {
+  laravel: {
+    quickActions: [
+      { label: "Serve", command: "php artisan serve", description: "Start development server", icon: "\u{1F680}" },
+      { label: "Migrate", command: "php artisan migrate", description: "Run database migrations", icon: "\u{1F4BE}" },
+      { label: "Seed", command: "php artisan db:seed", description: "Seed the database", icon: "\u{1F331}" },
+      { label: "Fresh Migrate", command: "php artisan migrate:fresh --seed", description: "Drop all tables, migrate and seed", icon: "\u{267B}\uFE0F" },
+      { label: "Clear Cache", command: "php artisan optimize:clear", description: "Clear all caches", icon: "\u{1F9F9}" },
+      { label: "Optimize", command: "php artisan optimize", description: "Cache config, routes, views", icon: "\u{26A1}" },
+      { label: "Queue Work", command: "php artisan queue:work", description: "Start queue worker", icon: "\u{2699}\uFE0F" },
+      { label: "Tinker", command: "php artisan tinker", description: "Interact with application", icon: "\u{1F52E}" },
+    ],
+    commands: [
+      { name: "make:model", command: "php artisan make:model", description: "Create a new Eloquent model", category: "Make" },
+      { name: "make:controller", command: "php artisan make:controller", description: "Create a new controller", category: "Make" },
+      { name: "make:migration", command: "php artisan make:migration", description: "Create a new migration file", category: "Make" },
+      { name: "make:seeder", command: "php artisan make:seeder", description: "Create a new seeder class", category: "Make" },
+      { name: "make:middleware", command: "php artisan make:middleware", description: "Create a new middleware", category: "Make" },
+      { name: "make:request", command: "php artisan make:request", description: "Create a new form request", category: "Make" },
+      { name: "make:resource", command: "php artisan make:resource", description: "Create a new resource", category: "Make" },
+      { name: "make:job", command: "php artisan make:job", description: "Create a new job class", category: "Make" },
+      { name: "make:event", command: "php artisan make:event", description: "Create a new event class", category: "Make" },
+      { name: "make:listener", command: "php artisan make:listener", description: "Create a new listener class", category: "Make" },
+      { name: "make:mail", command: "php artisan make:mail", description: "Create a new email class", category: "Make" },
+      { name: "make:notification", command: "php artisan make:notification", description: "Create a new notification", category: "Make" },
+      { name: "make:policy", command: "php artisan make:policy", description: "Create a new policy class", category: "Make" },
+      { name: "make:command", command: "php artisan make:command", description: "Create a new Artisan command", category: "Make" },
+      { name: "make:factory", command: "php artisan make:factory", description: "Create a new factory", category: "Make" },
+      { name: "make:test", command: "php artisan make:test", description: "Create a new test class", category: "Make" },
+      { name: "route:list", command: "php artisan route:list", description: "List all registered routes", category: "Routes" },
+      { name: "route:cache", command: "php artisan route:cache", description: "Cache the routes", category: "Routes" },
+      { name: "config:cache", command: "php artisan config:cache", description: "Cache the configuration", category: "Cache" },
+      { name: "config:clear", command: "php artisan config:clear", description: "Clear the configuration cache", category: "Cache" },
+      { name: "view:cache", command: "php artisan view:cache", description: "Compile all Blade views", category: "Cache" },
+      { name: "view:clear", command: "php artisan view:clear", description: "Clear all compiled views", category: "Cache" },
+      { name: "cache:clear", command: "php artisan cache:clear", description: "Flush the application cache", category: "Cache" },
+      { name: "storage:link", command: "php artisan storage:link", description: "Create a symbolic link", category: "Storage" },
+      { name: "key:generate", command: "php artisan key:generate", description: "Set the application key", category: "Setup" },
+      { name: "schedule:run", command: "php artisan schedule:run", description: "Run the scheduled commands", category: "Queue" },
+      { name: "migrate:status", command: "php artisan migrate:status", description: "Show migration status", category: "Database" },
+      { name: "migrate:rollback", command: "php artisan migrate:rollback", description: "Rollback the last migration", category: "Database" },
+    ],
+  },
+  symfony: {
+    quickActions: [
+      { label: "Serve", command: "php bin/console server:start", description: "Start Symfony server", icon: "\u{1F680}" },
+      { label: "Migrate", command: "php bin/console doctrine:migrations:migrate", description: "Run migrations", icon: "\u{1F4BE}" },
+      { label: "Clear Cache", command: "php bin/console cache:clear", description: "Clear the cache", icon: "\u{1F9F9}" },
+      { label: "Debug Router", command: "php bin/console debug:router", description: "Display routes", icon: "\u{1F517}" },
+      { label: "Diff Migration", command: "php bin/console doctrine:migrations:diff", description: "Generate migration diff", icon: "\u{1F4DD}" },
+      { label: "Warmup Cache", command: "php bin/console cache:warmup", description: "Warm up cache", icon: "\u{26A1}" },
+    ],
+    commands: [
+      { name: "make:controller", command: "php bin/console make:controller", description: "Create a new controller", category: "Make" },
+      { name: "make:entity", command: "php bin/console make:entity", description: "Create or update an entity", category: "Make" },
+      { name: "make:form", command: "php bin/console make:form", description: "Create a new form class", category: "Make" },
+      { name: "make:command", command: "php bin/console make:command", description: "Create a new command", category: "Make" },
+      { name: "make:migration", command: "php bin/console make:migration", description: "Create a new migration", category: "Make" },
+      { name: "make:subscriber", command: "php bin/console make:subscriber", description: "Create event subscriber", category: "Make" },
+      { name: "make:twig-extension", command: "php bin/console make:twig-extension", description: "Create Twig extension", category: "Make" },
+      { name: "make:validator", command: "php bin/console make:validator", description: "Create validator constraint", category: "Make" },
+      { name: "make:voter", command: "php bin/console make:voter", description: "Create voter class", category: "Make" },
+      { name: "make:test", command: "php bin/console make:test", description: "Create a test class", category: "Make" },
+      { name: "debug:container", command: "php bin/console debug:container", description: "Display service container", category: "Debug" },
+      { name: "debug:router", command: "php bin/console debug:router", description: "Display registered routes", category: "Debug" },
+      { name: "debug:event-dispatcher", command: "php bin/console debug:event-dispatcher", description: "Display events", category: "Debug" },
+      { name: "doctrine:schema:update", command: "php bin/console doctrine:schema:update --force", description: "Update database schema", category: "Doctrine" },
+      { name: "doctrine:fixtures:load", command: "php bin/console doctrine:fixtures:load", description: "Load fixtures", category: "Doctrine" },
+      { name: "messenger:consume", command: "php bin/console messenger:consume async", description: "Consume messages", category: "Messenger" },
+    ],
+  },
+  yii: {
+    quickActions: [
+      { label: "Serve", command: "php yii serve", description: "Start development server", icon: "\u{1F680}" },
+      { label: "Migrate", command: "php yii migrate", description: "Run database migrations", icon: "\u{1F4BE}" },
+      { label: "Cache Flush", command: "php yii cache/flush-all", description: "Flush all caches", icon: "\u{1F9F9}" },
+    ],
+    commands: [
+      { name: "migrate/create", command: "php yii migrate/create", description: "Create a new migration", category: "Database" },
+      { name: "gii/model", command: "php yii gii/model", description: "Generate a model", category: "Generate" },
+      { name: "gii/controller", command: "php yii gii/controller", description: "Generate a controller", category: "Generate" },
+    ],
+  },
+  cakephp: {
+    quickActions: [
+      { label: "Serve", command: "bin/cake server", description: "Start development server", icon: "\u{1F680}" },
+      { label: "Migrate", command: "bin/cake migrations migrate", description: "Run database migrations", icon: "\u{1F4BE}" },
+      { label: "Clear Cache", command: "bin/cake cache clear_all", description: "Clear all caches", icon: "\u{1F9F9}" },
+    ],
+    commands: [
+      { name: "bake model", command: "bin/cake bake model", description: "Bake a model", category: "Bake" },
+      { name: "bake controller", command: "bin/cake bake controller", description: "Bake a controller", category: "Bake" },
+      { name: "bake migration", command: "bin/cake bake migration", description: "Bake a migration", category: "Bake" },
+    ],
+  },
+  codeigniter: {
+    quickActions: [
+      { label: "Serve", command: "php spark serve", description: "Start development server", icon: "\u{1F680}" },
+      { label: "Migrate", command: "php spark migrate", description: "Run database migrations", icon: "\u{1F4BE}" },
+    ],
+    commands: [
+      { name: "make:controller", command: "php spark make:controller", description: "Create a controller", category: "Make" },
+      { name: "make:model", command: "php spark make:model", description: "Create a model", category: "Make" },
+      { name: "make:migration", command: "php spark make:migration", description: "Create a migration", category: "Make" },
+      { name: "make:seeder", command: "php spark make:seeder", description: "Create a seeder", category: "Make" },
+    ],
+  },
+  slim: {
+    quickActions: [
+      { label: "Serve", command: "php -S localhost:8080 -t public", description: "Start PHP built-in server", icon: "\u{1F680}" },
+    ],
+    commands: [],
+  },
+  wordpress: {
+    quickActions: [
+      { label: "WP CLI Info", command: "wp --info", description: "Display WP-CLI information", icon: "\u{2139}\uFE0F" },
+    ],
+    commands: [
+      { name: "plugin list", command: "wp plugin list", description: "List installed plugins", category: "Plugins" },
+      { name: "theme list", command: "wp theme list", description: "List installed themes", category: "Themes" },
+      { name: "core update", command: "wp core update", description: "Update WordPress core", category: "Core" },
+      { name: "db export", command: "wp db export", description: "Export database", category: "Database" },
+    ],
+  },
+  none: { commands: [], quickActions: [] },
+};
 
 export const SCRIPT_SUGGESTIONS: ScriptSuggestion[] = [
   {
