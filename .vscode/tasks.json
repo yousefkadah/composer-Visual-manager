@@ -2,13 +2,18 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "build",
+      "label": "build",
+      "type": "shell",
+      "command": "npm run build",
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": ["$tsc"]
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
     }
   ]
 }
