@@ -21,7 +21,6 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
-  "icon": "resources/icon.png",
   "contributes": {
     "commands": [
       {
@@ -47,7 +46,8 @@
         {
           "type": "webview",
           "id": "composerVisualManager.sidebar",
-          "name": "Composer Visual Manager"
+          "name": "Composer Visual Manager",
+          "icon": "resources/sidebar-icon.svg"
         }
       ]
     },
