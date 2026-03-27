@@ -492,6 +492,119 @@ export class ComposerPanel {
     await this.refreshPackages(true);
   }
 
+  // ===== Autoload Handlers =====
+
+  private async sendAutoload() {
+    const data = await this.composerService.getAutoloadData();
+    this.panel.webview.postMessage({ type: "autoloadData", data });
+  }
+
+  private async handleAddAutoloadEntry(section: string, entryType: string, ns: string | undefined, p: string) {
+    const success = await this.composerService.addAutoloadEntry(section as any, entryType as any, ns, p);
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "addAutoload", success, message: success ? "Autoload entry added" : "Failed to add autoload entry" });
+    await this.sendAutoload();
+  }
+
+  private async handleRemoveAutoloadEntry(section: string, entryType: string, ns: string | undefined, p: string) {
+    const success = await this.composerService.removeAutoloadEntry(section as any, entryType as any, ns, p);
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "removeAutoload", success, message: success ? "Autoload entry removed" : "Failed to remove autoload entry" });
+    await this.sendAutoload();
+  }
+
+  private async handleDumpAutoload(optimize: "none" | "classmap" | "authoritative" | "apcu") {
+    this.panel.webview.postMessage({ type: "loading", loading: true });
+    const success = await this.composerService.dumpAutoload(optimize);
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "dumpAutoload", success, message: success ? `Autoload dumped${optimize !== "none" ? ` (${optimize})` : ""}` : "Failed to dump autoload" });
+    this.panel.webview.postMessage({ type: "loading", loading: false });
+  }
+
+  // ===== Platform Handlers =====
+
+  private async sendPlatform() {
+    const data = await this.composerService.getPlatformRequirements();
+    this.panel.webview.postMessage({ type: "platformRequirements", data });
+  }
+
+  private async handleAddPlatformReq(name: string, constraint: string) {
+    const success = await this.composerService.addPlatformRequirement(name, constraint);
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "addPlatform", success, message: success ? `Added ${name} requirement` : `Failed to add ${name}` });
+    await this.sendPlatform();
+  }
+
+  private async handleRemovePlatformReq(name: string) {
+    const success = await this.composerService.removePlatformRequirement(name);
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "removePlatform", success, message: success ? `Removed ${name} requirement` : `Failed to remove ${name}` });
+    await this.sendPlatform();
+  }
+
+  private async handleCheckPlatformReqs() {
+    const data = await this.composerService.checkPlatformReqs();
+    this.panel.webview.postMessage({ type: "platformRequirements", data });
+  }
+
+  // ===== Health Handlers =====
+
+  private async handleRunValidate() {
+    this.panel.webview.postMessage({ type: "loading", loading: true });
+    const data = await this.composerService.runValidate();
+    this.panel.webview.postMessage({ type: "healthChecks", data });
+    this.panel.webview.postMessage({ type: "loading", loading: false });
+  }
+
+  private async handleRunDiagnose() {
+    this.panel.webview.postMessage({ type: "loading", loading: true });
+    const data = await this.composerService.runDiagnose();
+    this.panel.webview.postMessage({ type: "healthChecks", data });
+    this.panel.webview.postMessage({ type: "loading", loading: false });
+  }
+
+  // ===== Framework Handlers =====
+
+  private async sendFrameworkInfo() {
+    const data = await this.composerService.detectFramework();
+    this.panel.webview.postMessage({ type: "frameworkInfo", data });
+  }
+
+  private async handleRunFrameworkCommand(command: string) {
+    this.panel.webview.postMessage({ type: "loading", loading: true });
+    const { success, output } = await this.composerService.runFrameworkCommand(command);
+    this.panel.webview.postMessage({ type: "commandOutput", title: command, output });
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "frameworkCommand", success, message: success ? `Command completed` : `Command failed` });
+    this.panel.webview.postMessage({ type: "loading", loading: false });
+  }
+
+  // ===== Licenses Handler =====
+
+  private async sendLicenses() {
+    const data = await this.composerService.getLicenses();
+    this.panel.webview.postMessage({ type: "licenses", data });
+  }
+
+  // ===== Stability Handlers =====
+
+  private async sendStability() {
+    const data = await this.composerService.getStabilityConfig();
+    this.panel.webview.postMessage({ type: "stabilityConfig", data });
+  }
+
+  private async handleSetStability(minimumStability: string, preferStable: boolean) {
+    const success = await this.composerService.setStabilityConfig(minimumStability, preferStable);
+    this.panel.webview.postMessage({ type: "operationComplete", operation: "setStability", success, message: success ? "Stability settings updated" : "Failed to update stability" });
+    await this.sendStability();
+  }
+
+  // ===== Why Handlers =====
+
+  private async handleWhy(packageName: string) {
+    const data = await this.composerService.why(packageName);
+    this.panel.webview.postMessage({ type: "whyResult", data });
+  }
+
+  private async handleWhyNot(packageName: string, version: string) {
+    const data = await this.composerService.whyNot(packageName, version);
+    this.panel.webview.postMessage({ type: "whyResult", data });
+  }
+
   private sendConfig() {
     const config = vscode.workspace.getConfiguration("composerVisualManager");
     const columnConfig: ColumnConfig = {
